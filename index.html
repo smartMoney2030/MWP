@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Digital Particle Wave - Blue Tint</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #00020f; /* Very deep dark blue/black background */
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        // 1. Scene Setup
+        const scene = new THREE.Scene();
+        
+        // Perspective camera creates the 3D depth effect
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Limit pixel ratio to 2 for performance
+        document.body.appendChild(renderer.domElement);
+
+        // Position the camera to look down at an angle across the landscape
+        camera.position.set(0, 10, 95);
+        camera.lookAt(0, 2, 0);
+
+        // 2. Grid & Particle Setup
+        const width = 240;        // Number of particles wide (extends well past the canvas edges)
+        const depth = 150;        // Number of particles deep
+        const spacing = 1.1;      // Distance between particles
+        const numParticles = width * depth;
+
+        // Arrays to hold coordinates (x, y, z) and colors (r, g, b) for every particle
+        const positions = new Float32Array(numParticles * 3);
+        const colors = new Float32Array(numParticles * 3);
+
+        const tempColor = new THREE.Color();
+
+        let index = 0;
+        for (let x = 0; x < width; x++) {
+            for (let z = 0; z < depth; z++) {
+                // Map out the grid coordinates centering them at (0,0)
+                const posX = (x - width / 2) * spacing;
+                const posZ = (z - depth / 2) * spacing;
+                
+                positions[index * 3] = posX;
+                positions[index * 3 + 1] = 0; // Y (height) starts flat, animated later
+                positions[index * 3 + 2] = posZ;
+
+                // Ocean Blue Gradient: deep navy in the troughs up to bright cyan on the crests
+                const ratioX = x / width;
+                const ratioZ = z / depth;
+
+                // Hue stays inside the true-blue band: 220 (deep blue) to 195 (bright cyan-blue)
+                const hue = (220 - ratioX * 25 - ratioZ * 5) / 360;
+
+                // Saturation kept high for vivid water tones
+                // Lightness varies for depth: brighter toward the front, deeper toward the back
+                const lightness = 0.42 + (1 - ratioZ) * 0.18;
+
+                tempColor.setHSL(hue, 1.0, lightness);
+
+                colors[index * 3] = tempColor.r;
+                colors[index * 3 + 1] = tempColor.g;
+                colors[index * 3 + 2] = tempColor.b;
+
+                index++;
+            }
+        }
+
+        // Bundle data into a Three.js BufferGeometry
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+        // Material settings to make particles look like glowing dots
+        const material = new THREE.PointsMaterial({
+            size: 0.38,
+            vertexColors: true, 
+            transparent: true,
+            opacity: 0.9,
+            blending: THREE.AdditiveBlending // Makes overlapping particles look brighter
+        });
+
+        const particleSystem = new THREE.Points(geometry, material);
+        scene.add(particleSystem);
+
+        // 3. Animation Loop (Seamless Loop Setup)
+        const clock = new THREE.Clock();
+        const loopDuration = 10; // The animation repeats perfectly every 10 seconds
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const elapsedTime = clock.getElapsedTime();
+            
+            // Progress goes from 0.0 to 1.0, resetting every loopDuration seconds
+            const progress = (elapsedTime % loopDuration) / loopDuration;
+            
+            // Theta completes a full 2*PI circle over the loop duration, ensuring seamlessness
+            const theta = progress * Math.PI * 2;
+
+            const positionAttribute = geometry.attributes.position;
+
+            let index = 0;
+            for (let x = 0; x < width; x++) {
+                for (let z = 0; z < depth; z++) {
+                    const posX = (x - width / 2) * spacing;
+                    const posZ = (z - depth / 2) * spacing;
+
+                    // Layering many higher-frequency sine/cosine functions with integer
+                    // multipliers of theta for tight, chaotic, but still seamless motion.
+                    const wave1 = Math.sin(posX * 0.12 + theta) * Math.cos(posZ * 0.11 + theta) * 2.5;
+                    const wave2 = Math.sin(posX * 0.23 - theta * 2) * 1.1;
+                    const wave3 = Math.cos(posZ * 0.19 + theta * 3) * 1.0;
+                    const wave4 = Math.sin((posX + posZ) * 0.17 + theta * 2) * 0.9;
+                    const wave5 = Math.cos((posX - posZ) * 0.31 - theta * 4) * 0.6;
+                    const wave6 = Math.sin(posX * 0.41 + posZ * 0.37 + theta * 5) * 0.4;
+
+                    // Modify the Y-coordinate (height) of the current particle
+                    positionAttribute.setY(index, wave1 + wave2 + wave3 + wave4 + wave5 + wave6);
+                    
+                    index++;
+                }
+            }
+
+            // Tell Three.js that the particle positions changed so it re-renders them
+            positionAttribute.needsUpdate = true;
+
+            // Seamlessly loop the system's Y-rotation by using a sine wave with period of loopDuration
+            particleSystem.rotation.y = Math.sin(theta) * 0.04;
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // 4. Handle Window Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
