@@ -1,0 +1,278 @@
+<!--
+  MWP — 3D Perspective Ocean Background (camera looking into the crests)
+  ----------------------------------------------------------------------
+  Self-contained. Open in a browser to preview.
+
+  Renders a real 3D water surface: a heightfield of rolling swells,
+  perspective-projected as if a low camera is looking into the waves.
+  Crests catch the light and break into foam; distance fades to a hazy
+  horizon and sky.
+
+  TO USE ON YOUR SITE:
+  1) Drop-in: copy the .mwp-wave-bg <div>, the <style id="mwp-wave-style">,
+     and the <script id="mwp-wave-script"> blocks into your page. It fills
+     the viewport behind your content (z-index:-1).
+  2) iframe: host this file and embed it:
+     <iframe src="mwp-water-wave-background.html" style="border:0;width:100%;height:100vh"></iframe>
+
+  Delete the ".mwp-demo-content" block when embedding — it's just preview text.
+  Tuning knobs live in the CONFIG object near the top of the script.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MWP — 3D Ocean Background</title>
+
+<style id="mwp-wave-style">
+  html,body{margin:0;height:100%;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:#fff; overflow-x:hidden;
+  }
+  .mwp-wave-bg{
+    position:fixed; inset:0; z-index:-1; overflow:hidden;
+    background:linear-gradient(180deg,#cfeefb 0%,#7fc6ec 30%,#0a6ebd 60%,#03396c 100%);
+  }
+  .mwp-wave-bg canvas{position:absolute; inset:0; width:100%; height:100%; display:block;}
+
+  /* Demo content — delete when embedding */
+  .mwp-demo-content{
+    position:relative; min-height:100vh; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; text-align:center;
+    padding:24px; box-sizing:border-box;
+  }
+  .mwp-demo-content h1{
+    font-size:clamp(2.4rem,7vw,5rem); font-weight:800; margin:0 0 .4em;
+    letter-spacing:-.02em; text-shadow:0 2px 28px rgba(0,30,60,.55);
+  }
+  .mwp-demo-content p{
+    font-size:clamp(1rem,2.4vw,1.4rem); max-width:40ch; margin:0 0 1.6em;
+    color:#eaf7ff; line-height:1.5; text-shadow:0 1px 16px rgba(0,30,60,.55);
+  }
+  .mwp-demo-content .mwp-cta{
+    display:inline-block; background:#fff; color:#03396c; font-weight:700;
+    text-decoration:none; padding:.85em 2.2em; border-radius:999px;
+    box-shadow:0 6px 24px rgba(0,30,60,.35); transition:transform .15s ease, box-shadow .15s ease;
+  }
+  .mwp-demo-content .mwp-cta:hover{transform:translateY(-2px); box-shadow:0 10px 30px rgba(0,30,60,.45);}
+</style>
+</head>
+<body>
+
+<!-- ===== BACKGROUND (reusable) ===== -->
+<div class="mwp-wave-bg" aria-hidden="true">
+  <canvas id="mwpWaveCanvas"></canvas>
+</div>
+
+<!-- ===== DEMO CONTENT (delete when embedding) ===== -->
+<div class="mwp-demo-content">
+  <h1>My Water People</h1>
+  <p>Clean, reliable water solutions — backed by people who care.</p>
+  <a class="mwp-cta" href="#">Get a Free Quote</a>
+</div>
+
+<script id="mwp-wave-script">
+(function(){
+  const canvas = document.getElementById('mwpWaveCanvas');
+  const ctx = canvas.getContext('2d');
+  const reduceMotion = window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ---------- CONFIG (tweak the look here) ----------
+  const CONFIG = {
+    cols: 168,         // grid resolution across (x)  (2x = 4x the faces)
+    rows: 140,         // grid resolution into the distance (z)
+    spanX: 130,        // half-width of the visible ocean in world units
+    near: 5,           // nearest z (just in front of camera)
+    far:  280,         // farthest z (horizon distance)
+    camH: 15,          // camera height above mean water
+    tilt: 0.30,        // camera downward pitch (radians) — smaller = looking flatter into crests
+    focal: 1.05,       // lens; larger = more zoomed/dramatic
+    waveSpeed: 1.0,    // overall animation speed
+    horizonY: 0.42,    // screen fraction where the horizon sits
+    light: {x:0.35, y:0.62, z:-0.70}, // direction light comes from
+  };
+
+  // Ocean wave components: rolling swells travelling toward the camera (−z)
+  const WAVES = [
+    {amp:3.4, kx:0.018, kz:0.060, w:1.05, ph:0.0},
+    {amp:2.1, kx:-0.026, kz:0.105, w:1.55, ph:1.7},
+    {amp:1.2, kx:0.040, kz:0.150, w:2.20, ph:3.4},
+    {amp:0.6, kx:-0.060, kz:0.230, w:3.10, ph:5.1},
+  ];
+
+  let W=0, H=0, DPR=1, cx=0, cy=0, f=0;
+  const sinT=Math.sin(CONFIG.tilt), cosT=Math.cos(CONFIG.tilt);
+
+  function height(x,z,t){
+    let h=0;
+    for(const wv of WAVES){
+      h += wv.amp * Math.sin(x*wv.kx + z*wv.kz - t*wv.w*CONFIG.waveSpeed + wv.ph);
+    }
+    return h;
+  }
+
+  // Perspective projection of a world point (X, Yh, Z) with camera at (0,camH,0)
+  // looking down +Z, pitched down by CONFIG.tilt.
+  function project(X, Yh, Z){
+    const dx = X;
+    const dy = Yh - CONFIG.camH;
+    const dz = Z;
+    const dyp =  dy*cosT + dz*sinT;   // rotate about X (pitch)
+    const dzp = -dy*sinT + dz*cosT;
+    if(dzp <= 0.1) return null;       // behind near plane
+    return {
+      sx: cx + f*dx/dzp,
+      sy: cy - f*dyp/dzp,
+      depth: dzp
+    };
+  }
+
+  function lerp(a,b,t){return a+(b-a)*t;}
+  function clamp01(v){return v<0?0:v>1?1:v;}
+
+  function resize(){
+    DPR = Math.min(window.devicePixelRatio||1, 1.5);
+    W = canvas.clientWidth; H = canvas.clientHeight;
+    canvas.width = Math.floor(W*DPR); canvas.height = Math.floor(H*DPR);
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    cx = W*0.5;
+    cy = H*CONFIG.horizonY;
+    f  = H*CONFIG.focal;
+  }
+
+  // Deep trough -> bright crest palette
+  const C_DEEP=[6,42,78], C_MID=[12,110,189], C_AQUA=[60,180,225], C_FOAM=[235,250,255];
+  const C_HORIZON=[200,230,245];
+  const C_SKYREF=[178,222,245];   // colour the surface reflects (sky/haze)
+  function mix(a,b,t){return [lerp(a[0],b[0],t),lerp(a[1],b[1],t),lerp(a[2],b[2],t)];}
+
+  // Light vector (normalized)
+  const L=(function(){const l=CONFIG.light;const m=Math.hypot(l.x,l.y,l.z);return{x:l.x/m,y:l.y/m,z:l.z/m};})();
+
+  function drawSky(){
+    const g=ctx.createLinearGradient(0,0,0,cy+1);
+    g.addColorStop(0,'#dff3fc');
+    g.addColorStop(0.7,'#bfe6f7');
+    g.addColorStop(1,'#e9f7ff');   // bright haze right at the horizon
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,cy+2);
+    // soft sun glow near horizon center
+    const sun=ctx.createRadialGradient(cx,cy,0,cx,cy,H*0.5);
+    sun.addColorStop(0,'rgba(255,255,255,0.45)');
+    sun.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=sun; ctx.fillRect(0,0,W,cy+2);
+  }
+
+  // grid buffers
+  const R=CONFIG.rows, C=CONFIG.cols;
+  const px=new Float32Array((R+1)*(C+1));
+  const py=new Float32Array((R+1)*(C+1));
+  const hh=new Float32Array((R+1)*(C+1));
+  const ok=new Uint8Array((R+1)*(C+1));
+  const depth=new Float32Array((R+1)*(C+1));
+  const idx=(r,c)=>r*(C+1)+c;
+
+  function frame(t){
+    drawSky();
+
+    // world coords: denser rows up close (pow curve), uniform columns
+    for(let r=0;r<=R;r++){
+      const v=r/R;
+      const Z=lerp(CONFIG.near, CONFIG.far, v*v); // quadratic = more detail nearby
+      for(let c=0;c<=C;c++){
+        const u=c/C;
+        const X=lerp(-CONFIG.spanX, CONFIG.spanX, u);
+        const h=height(X,Z,t);
+        const p=project(X,h,Z);
+        const i=idx(r,c);
+        hh[i]=h;
+        if(p){ ok[i]=1; px[i]=p.sx; py[i]=p.sy; depth[i]=p.depth; }
+        else { ok[i]=0; }
+      }
+    }
+
+    // draw quads far -> near (painter's algorithm)
+    for(let r=R-1;r>=0;r--){
+      for(let c=0;c<C;c++){
+        const i00=idx(r,c), i10=idx(r,c+1), i01=idx(r+1,c), i11=idx(r+1,c+1);
+        if(!(ok[i00]&&ok[i10]&&ok[i01]&&ok[i11])) continue;
+
+        // skip degenerate / wildly stretched cells
+        const minx=Math.min(px[i00],px[i10],px[i01],px[i11]);
+        const maxx=Math.max(px[i00],px[i10],px[i01],px[i11]);
+        if(maxx-minx > W*0.9) continue;
+
+        // average height & approx normal from cell edges
+        const hAvg=(hh[i00]+hh[i10]+hh[i01]+hh[i11])*0.25;
+        const dzWorld=(CONFIG.far-CONFIG.near)/R;
+        const dxWorld=(2*CONFIG.spanX)/C;
+        const dHx=((hh[i10]+hh[i11])-(hh[i00]+hh[i01]))*0.5/dxWorld;
+        const dHz=((hh[i01]+hh[i11])-(hh[i00]+hh[i10]))*0.5/dzWorld;
+        // normal = (-dHx, 1, -dHz) normalized
+        let nx=-dHx, ny=1, nz=-dHz;
+        const nm=Math.hypot(nx,ny,nz); nx/=nm; ny/=nm; nz/=nm;
+
+        // ---- Fresnel reflection / refraction shading ----
+        // (CPU version of: fresnel = pow(1-dot(view,normal),3);
+        //  color = mix(refraction, reflection, fresnel))
+        const uC=(c+0.5)/C, vC=(r+0.5)/R;
+        const Xc=lerp(-CONFIG.spanX,CONFIG.spanX,uC);
+        const Zc=lerp(CONFIG.near,CONFIG.far,vC*vC);
+        // view direction: from this surface point toward the camera
+        let vx=-Xc, vy=CONFIG.camH-hAvg, vz=-Zc;
+        const vm=Math.hypot(vx,vy,vz); vx/=vm; vy/=vm; vz/=vm;
+        let vdotn=vx*nx+vy*ny+vz*nz; if(vdotn<0) vdotn=0;
+        const fres=Math.pow(1-vdotn, 3);          // 0 facing you .. 1 grazing
+
+        const hi=clamp01((hAvg+4)/8);             // 0 trough .. 1 crest
+        // refraction: light coming up through the water (deep -> aqua by height)
+        let refr=mix(C_DEEP, C_MID, clamp01(hi*1.3));
+        refr=mix(refr, C_AQUA, clamp01((hi-0.5)*1.6));
+        // reflection: sky/haze the surface mirrors back
+        const refl=mix(C_SKYREF, C_FOAM, clamp01(fres*0.3));
+        // Fresnel blend
+        let col=mix(refr, refl, clamp01(fres*0.9+0.05));
+
+        // sun glint (specular) along the light direction
+        const diff=clamp01(nx*L.x+ny*L.y+nz*L.z);
+        const spec=Math.pow(diff,16)*0.85;
+        col=[col[0]+255*spec, col[1]+255*spec, col[2]+255*spec];
+
+        // foam on the highest crests
+        if(hi>0.84){ const fAmt=clamp01((hi-0.84)/0.16); col=mix(col,C_FOAM,fAmt*0.85); }
+
+        // distance fog toward the hazy horizon
+        const dAvg=(depth[i00]+depth[i10]+depth[i01]+depth[i11])*0.25;
+        const fog=clamp01((dAvg-CONFIG.far*0.35)/(CONFIG.far*0.7));
+        col=mix(col,C_HORIZON,fog*0.85);
+
+        ctx.fillStyle='rgb('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+')';
+        ctx.beginPath();
+        ctx.moveTo(px[i00],py[i00]);
+        ctx.lineTo(px[i10],py[i10]);
+        ctx.lineTo(px[i11],py[i11]);
+        ctx.lineTo(px[i01],py[i01]);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }
+
+  let start=null;
+  function loop(ts){
+    if(start===null) start=ts;
+    const t=(ts-start)/1000;
+    frame(t);
+    requestAnimationFrame(loop);
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+  if(reduceMotion){ frame(2.0); }   // single static frame
+  else { requestAnimationFrame(loop); }
+})();
+</script>
+</body>
+</html>
