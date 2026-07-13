@@ -7,8 +7,8 @@
   <meta name="description" content="Free water testing, whole-house filtration, water softeners, iron breakers and kitchen drinking water systems for San Antonio & South Texas homes. Friendly local service — call 210-816-3027." />
   <meta name="theme-color" content="#030d15" />
   <link rel="canonical" href="https://mywaterpeople.com/" />
-  <link rel="icon" type="image/png" href="assets/my-water-people-logo.png" />
-  <link rel="apple-touch-icon" href="assets/my-water-people-logo.png" />
+  <link rel="icon" type="image/png" href="assets/favicon-180.png" />
+  <link rel="apple-touch-icon" href="assets/favicon-180.png" />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="My Water People — Cleaner water for your San Antonio home" />
   <meta property="og:description" content="Free water testing and custom filtration, softener and drinking water systems, backed by friendly local South Texas service." />
@@ -170,6 +170,14 @@
     }
     @media(max-width:560px){
       .topbar .wrap{display:block;text-align:center}.nav .wrap{height:68px}.brand{font-size:19px}.nav .button{display:none}.hero{padding-top:48px}.cards,.steps,.promise-list,.trust,.form-grid{grid-template-columns:1fr}.test-card,.contact-box{border-radius:26px;padding:18px}.section{padding:60px 0}.proof b{font-size:21px}footer .wrap{display:block;text-align:center}
+    }
+    /* Small-viewport units: sized to the collapsed-URL-bar viewport, so the
+       pinned scenes don't resize (and jump) when the mobile bar shows/hides.
+       Placed after the media queries above so it wins the cascade. */
+    @supports (height: 100svh){
+      .splash-sticky{height:100svh}
+      .splash-scene{height:280svh}
+      @media(max-width:920px){ .splash-scene{height:220svh} }
     }
     @media (prefers-reduced-motion: reduce){
       html{scroll-behavior:auto}
@@ -776,246 +784,6 @@
       else requestAnimationFrame(frame);
     })();
 
-    // ── Scroll-scrubbed splash footage ───────────────────────────────────
-    // Photorealistic high-speed splash clips decomposed into frame
-    // sequences and scrubbed by scroll position (the technique behind
-    // scroll-driven product pages like Ducati's Superleggera site).
-    // Each .splash-scene pins a canvas for ~2.5 viewport-heights while the
-    // footage plays forward/backward with the scrollbar.
-    (function splashScrub(){
-      const scenes = Array.from(document.querySelectorAll('.splash-scene'));
-      if(!scenes.length) return;
-      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-      const states = scenes.map(scene=>{
-        const canvas = scene.querySelector('.splash-cv');
-        const copy = scene.querySelector('.splash-copy .inner');
-        const base = scene.dataset.seq;
-        const count = parseInt(scene.dataset.frames, 10) || 64;
-        return {
-          scene, canvas, copy,
-          ctx: canvas.getContext('2d'),
-          base, count,
-          imgs: new Array(count).fill(null),
-          loadKicked: false, loadedCount: 0,
-          cur: 0, drawn: -1, w: 0, h: 0, dpr: 1
-        };
-      });
-
-      function sizeCanvas(st){
-        const rect = st.canvas.getBoundingClientRect();
-        const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
-        if(st.w === rect.width && st.h === rect.height && st.dpr === dpr) return;
-        st.w = rect.width; st.h = rect.height; st.dpr = dpr;
-        st.canvas.width = Math.floor(rect.width*dpr);
-        st.canvas.height = Math.floor(rect.height*dpr);
-        st.ctx.setTransform(dpr,0,0,dpr,0,0);
-        st.drawn = -1; // force redraw
-      }
-
-      // Load a sequence with a small parallel window so early frames
-      // arrive first and scrubbing can start before the tail finishes.
-      function kickLoad(st){
-        if(st.loadKicked) return;
-        st.loadKicked = true;
-        let next = 0, inFlight = 0, PAR = 6;
-        function pump(){
-          while(inFlight < PAR && next < st.count){
-            const i = next++;
-            const img = new Image();
-            inFlight++;
-            img.onload = img.onerror = function(){
-              inFlight--;
-              if(img.naturalWidth) { st.imgs[i] = img; st.loadedCount++; st.drawn = -1; }
-              pump();
-            };
-            img.src = st.base + '/f' + String(i).padStart(3,'0') + '.jpg';
-          }
-        }
-        pump();
-      }
-
-      // Nearest loaded frame at or below the target index.
-      function frameAt(st, idx){
-        for(let i=idx; i>=0; i--) if(st.imgs[i]) return st.imgs[i];
-        for(let i=idx+1; i<st.count; i++) if(st.imgs[i]) return st.imgs[i];
-        return null;
-      }
-
-      function draw(st, idx){
-        if(idx === st.drawn) return;
-        const img = frameAt(st, idx);
-        if(!img) return;
-        st.drawn = idx;
-        const iw = img.naturalWidth, ih = img.naturalHeight;
-        const scale = Math.max(st.w/iw, st.h/ih);
-        const dw = iw*scale, dh = ih*scale;
-        st.ctx.fillStyle = '#000';
-        st.ctx.fillRect(0,0,st.w,st.h);
-        st.ctx.drawImage(img, (st.w-dw)/2, (st.h-dh)/2, dw, dh);
-      }
-
-      // Start loading well before the scene arrives.
-      const loadIO = new IntersectionObserver(entries=>{
-        entries.forEach(e=>{
-          if(e.isIntersecting){
-            const st = states.find(s=>s.scene === e.target);
-            if(st){ kickLoad(st); loadIO.unobserve(e.target); }
-          }
-        });
-      }, {rootMargin: '160% 0%'});
-      scenes.forEach(s=>loadIO.observe(s));
-
-      if(reduceMotion){
-        // Static hero frame from the middle of each clip; copy always shown.
-        states.forEach(st=>{
-          kickLoad(st);
-          const tryDraw = setInterval(()=>{
-            sizeCanvas(st);
-            const mid = Math.floor(st.count/2);
-            if(frameAt(st, mid)){ draw(st, mid); clearInterval(tryDraw); }
-          }, 200);
-        });
-        return;
-      }
-
-      function update(smooth){
-        const vh = window.innerHeight;
-        for(const st of states){
-          const rect = st.scene.getBoundingClientRect();
-          // Begin fetching frames while the scene is still ~3 screens away.
-          if(rect.top < vh*3 && rect.bottom > -vh) kickLoad(st);
-          if(rect.bottom < -vh || rect.top > vh*2){ continue; } // far away
-          sizeCanvas(st);
-          const total = Math.max(rect.height - vh, 1);
-          const progress = Math.min(1, Math.max(0, -rect.top/total));
-          const target = progress*(st.count-1);
-          // Smoothed scrub: the frame chases the scrollbar for fluid motion.
-          if(smooth === false){ st.cur = target; }
-          else {
-            st.cur += (target - st.cur)*0.22;
-            if(Math.abs(target - st.cur) < 0.5) st.cur = target;
-          }
-          draw(st, Math.round(st.cur));
-
-          // Copy fades in mid-scene, floats up, and hands off near the end.
-          if(st.copy){
-            const inA = (progress-0.18)/0.14, outA = (0.97-progress)/0.10;
-            const o = Math.min(1, Math.max(0, Math.min(inA, outA)));
-            st.copy.style.opacity = o.toFixed(3);
-            st.copy.style.transform = 'translateY(' + (26*(1-o)).toFixed(1) + 'px)';
-          }
-        }
-      }
-      function tick(){ update(true); requestAnimationFrame(tick); }
-      requestAnimationFrame(tick);
-      // Scroll listener as a safety net where rAF is throttled (hidden or
-      // low-power tabs); also lets the scrub react on the very first scroll.
-      window.addEventListener('scroll', ()=>update(true), {passive:true});
-      window.__splashUpdate = update; // debug/verification hook
-    })();
-
-    // ── Cinematic reveals: word-split headings + staggered rises ────────
-    (function reveals(){
-      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-      // Split section headings into per-word masked spans.
-      document.querySelectorAll('.split-words').forEach(h=>{
-        const words = h.textContent.trim().split(/\s+/);
-        h.textContent = '';
-        words.forEach((w,i)=>{
-          const outer = document.createElement('span');
-          outer.className = 'w';
-          const inner = document.createElement('i');
-          inner.textContent = w;
-          inner.style.transitionDelay = (i*55)+'ms';
-          outer.appendChild(inner);
-          h.appendChild(outer);
-          if(i < words.length-1) h.appendChild(document.createTextNode(' '));
-        });
-      });
-
-      const sections = document.querySelectorAll('.fx');
-      if(reduceMotion || !('IntersectionObserver' in window)){
-        sections.forEach(s=>s.classList.add('in-view'));
-        return;
-      }
-      const io = new IntersectionObserver(entries=>{
-        entries.forEach(e=>{
-          if(e.isIntersecting){ e.target.classList.add('in-view'); io.unobserve(e.target); }
-        });
-      }, {threshold: 0.18});
-      sections.forEach(s=>io.observe(s));
-    })();
-
-    // ── Pinned process scene: waterline fills & steps activate on scroll ─
-    (function processScene(){
-      const section = document.getElementById('process');
-      const fill = document.getElementById('waterlineFill');
-      const steps = Array.from(document.querySelectorAll('#stepsGrid .step'));
-      if(!section || !fill) return;
-      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if(reduceMotion){
-        fill.style.width = '100%';
-        steps.forEach(s=>s.classList.add('active'));
-        return;
-      }
-      function update(){
-        const vh = window.innerHeight;
-        const rect = section.getBoundingClientRect();
-        const total = rect.height - vh;
-        const progress = Math.min(1, Math.max(0, -rect.top / Math.max(total, 1)));
-        fill.style.width = (progress*100).toFixed(1) + '%';
-        const activeCount = Math.min(steps.length, Math.floor(progress*4.6));
-        steps.forEach((s,i)=>s.classList.toggle('active', i < activeCount || progress > 0.92));
-      }
-      let ticking = false;
-      window.addEventListener('scroll', ()=>{
-        if(ticking) return;
-        ticking = true;
-        requestAnimationFrame(()=>{ update(); ticking = false; });
-      }, {passive:true});
-      window.addEventListener('resize', update, {passive:true});
-      update();
-    })();
-
-    // ── Marquee: duplicate track content for a seamless loop ────────────
-    (function marquee(){
-      const track = document.getElementById('marqueeTrack');
-      if(!track) return;
-      track.innerHTML += track.innerHTML;
-    })();
-
-    // ── Free water test form → email to mywaterpeople@gmail.com ─────────
-    (function inquiryForm(){
-      const form = document.getElementById('testForm');
-      if(!form) return;
-      form.addEventListener('submit', function(ev){
-        ev.preventDefault();
-        const v = id => (document.getElementById(id).value || '').trim();
-        const name = v('f-name'), phone = v('f-phone');
-        if(!name || !phone){
-          toast('Please add your name and phone number so we can reach you.');
-          return;
-        }
-        const email = v('f-email'), city = v('f-city'), msg = v('f-msg');
-        const subject = 'Free Water Test Request — ' + name;
-        const body =
-          'Hi My Water People,\n\n' +
-          'I would like to schedule a free water test.\n\n' +
-          'Name: ' + name + '\n' +
-          'Phone: ' + phone + '\n' +
-          (email ? 'Email: ' + email + '\n' : '') +
-          (city ? 'City/ZIP: ' + city + '\n' : '') +
-          (msg ? '\nAbout my water:\n' + msg + '\n' : '') +
-          '\nSent from the My Water People website.';
-        window.location.href = 'mailto:mywaterpeople@gmail.com'
-          + '?subject=' + encodeURIComponent(subject)
-          + '&body=' + encodeURIComponent(body);
-        toast('Opening your email app… If nothing opens, call 210-816-3027.');
-      });
-    })();
-  
   </script>
   <script>
     // Cinematic scroll layer: scrubbed splash footage + section reveals + inquiry form.
@@ -1054,15 +822,34 @@
         };
       });
 
+      // Windowed parallel loader: early frames land first so scrubbing can
+      // begin before the whole sequence arrives.
       function load(s){
         if(s.started) return;
         s.started = true;
-        for(let i=0;i<s.n;i++){
-          const im = new Image();
-          im.src = s.dir + '/f' + String(i).padStart(3,'0') + '.jpg';
-          if(i===0) im.onload = ()=>draw(s, s.cur, true);
-          s.imgs[i] = im;
-        }
+        let next = 0, inFlight = 0;
+        const PAR = 6;
+        (function pump(){
+          while(inFlight < PAR && next < s.n){
+            const i = next++;
+            const im = new Image();
+            im.decoding = 'async';
+            inFlight++;
+            im.onload = im.onerror = ()=>{
+              inFlight--;
+              if(im.naturalWidth){ s.imgs[i] = im; if(s.drawn===-1||i===Math.round(s.cur)) draw(s, s.cur, true); }
+              pump();
+            };
+            im.src = s.dir + '/f' + String(i).padStart(3,'0') + '.jpg';
+          }
+        })();
+      }
+      // Nearest loaded frame at or below the target, so partially loaded
+      // sequences still render something sensible.
+      function nearest(s, f){
+        for(let i=f;i>=0;i--) if(s.imgs[i] && s.imgs[i].complete && s.imgs[i].naturalWidth) return s.imgs[i];
+        for(let i=f+1;i<s.n;i++) if(s.imgs[i] && s.imgs[i].complete && s.imgs[i].naturalWidth) return s.imgs[i];
+        return null;
       }
       const pre = new IntersectionObserver(entries=>{
         entries.forEach(e=>{
@@ -1076,7 +863,7 @@
 
       function sizeCanvas(s){
         const rect = s.canvas.parentElement.getBoundingClientRect();
-        const dpr = Math.min(window.devicePixelRatio||1, 2);
+        const dpr = Math.min(window.devicePixelRatio||1, 1.5);
         s.canvas.width = Math.max(1, Math.floor(rect.width*dpr));
         s.canvas.height = Math.max(1, Math.floor(rect.height*dpr));
         s.drawn = -1;
@@ -1085,8 +872,8 @@
       function draw(s, f, force){
         f = Math.max(0, Math.min(s.n-1, Math.round(f)));
         if(!force && f===s.drawn) return;
-        const im = s.imgs[f];
-        if(!im || !im.complete || !im.naturalWidth) return;
+        const im = nearest(s, f);
+        if(!im) return;
         const cw = s.canvas.width, ch = s.canvas.height;
         const scale = Math.max(cw/im.naturalWidth, ch/im.naturalHeight);
         const w = im.naturalWidth*scale, h = im.naturalHeight*scale;
@@ -1095,9 +882,12 @@
       }
 
       function update(){
-        const vh = window.innerHeight;
         for(const s of scenes){
           const r = s.sec.getBoundingClientRect();
+          // Use the sticky viewport's own height (100svh) rather than
+          // window.innerHeight: on mobile the URL bar showing/hiding changes
+          // innerHeight mid-scroll, which made the scrub jump on scroll-up.
+          const vh = s.canvas.parentElement.clientHeight || window.innerHeight;
           const travel = Math.max(1, r.height - vh);
           const p = Math.max(0, Math.min(1, -r.top/travel));
           s.target = p*(s.n-1);
