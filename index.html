@@ -837,7 +837,7 @@
             inFlight++;
             im.onload = im.onerror = ()=>{
               inFlight--;
-              if(im.naturalWidth){ s.imgs[i] = im; if(s.drawn===-1||i===Math.round(s.cur)) draw(s, s.cur, true); }
+              if(im.naturalWidth){ s.imgs[i] = im; draw(s, s.cur, true); }
               pump();
             };
             im.src = s.dir + '/f' + String(i).padStart(3,'0') + '.jpg';
@@ -888,25 +888,49 @@
           // window.innerHeight: on mobile the URL bar showing/hiding changes
           // innerHeight mid-scroll, which made the scrub jump on scroll-up.
           const vh = s.canvas.parentElement.clientHeight || window.innerHeight;
-          const travel = Math.max(1, r.height - vh);
-          const p = Math.max(0, Math.min(1, -r.top/travel));
+          // Belt-and-braces preload: fetch the sequence once the scene is
+          // within ~2.5 screens (IntersectionObserver above can be flaky
+          // with large rootMargins in some engines).
+          if(r.top < vh*2.5 && r.bottom > -vh) load(s);
+          // Continuous flow: progress runs from the moment the scene's top
+          // edge enters the viewport (bottom) until its bottom edge leaves
+          // (top) — the footage is always moving while any of it is visible,
+          // not just while pinned.
+          const p = Math.max(0, Math.min(1, (vh - r.top) / (r.height + vh)));
           s.target = p*(s.n-1);
           s.cur = reduce ? s.target : s.cur + (s.target - s.cur)*0.14;
           if(r.bottom > 0 && r.top < vh) draw(s, s.cur);
           if(s.copy){
-            const fadeIn  = Math.max(0, Math.min(1, (p-0.06)/0.14));
-            const fadeOut = 1 - Math.max(0, Math.min(1, (p-0.82)/0.14));
+            // Caption lives in the middle of the pinned phase.
+            const fadeIn  = Math.max(0, Math.min(1, (p-0.30)/0.12));
+            const fadeOut = 1 - Math.max(0, Math.min(1, (p-0.62)/0.12));
             const a = reduce ? 1 : fadeIn*fadeOut;
             s.copy.style.opacity = a;
             s.copy.style.transform = 'translateY(' + ((1-a)*28) + 'px)';
           }
         }
-        requestAnimationFrame(update);
+        lastStep = performance.now();
       }
+      let lastStep = 0;
+      function loop(){ update(); requestAnimationFrame(loop); }
+      // Safety net: rAF is throttled or suspended in occluded/low-power
+      // tabs — drive the scrub from scroll events too.
+      window.addEventListener('scroll', ()=>{
+        if(performance.now() - lastStep > 25) update();
+      }, {passive:true});
       window.addEventListener('resize', ()=>scenes.forEach(sizeCanvas), {passive:true});
       scenes.forEach(sizeCanvas);
+      // Paint each scene's opening frame immediately so there is never an
+      // empty black band while the full sequence streams in.
+      scenes.forEach(s=>{
+        const first = new Image();
+        first.decoding = 'async';
+        first.onload = ()=>{ if(!s.imgs[0]){ s.imgs[0] = first; } draw(s, s.cur, true); };
+        first.src = s.dir + '/f000.jpg';
+      });
       if(reduce) scenes.forEach(s=>{ load(s); s.cur = s.target = (s.n-1)/2; });
-      requestAnimationFrame(update);
+      update();
+      requestAnimationFrame(loop);
 
       // ── Free water test inquiry → mailto ───────────────────────────
       const form = document.getElementById('waterTestForm');
