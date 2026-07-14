@@ -182,7 +182,9 @@
     @media (prefers-reduced-motion: reduce){
       html{scroll-behavior:auto}
       .splash-scene{height:100vh}
-      .reveal{opacity:1;transform:none;transition:none}
+      /* Keep a gentle fade so content still visibly "arrives" — only the
+         translation (the vestibular trigger) is removed. */
+      .reveal{transform:none;transition:opacity .6s ease}
     }
   </style>
 </head>
@@ -449,14 +451,20 @@
 
       function resize(){
         const rect = hero.getBoundingClientRect();
-        dpr = Math.min(window.devicePixelRatio || 1, 2);
-        width = Math.max(1, Math.floor(rect.width));
-        height = Math.max(1, Math.floor(rect.height));
+        const nDpr = Math.min(window.devicePixelRatio || 1, 2);
+        const nW = Math.max(1, Math.floor(rect.width));
+        const nH = Math.max(1, Math.floor(rect.height));
+        // Mobile fires resize when the URL bar hides/shows during scroll;
+        // setting canvas.width clears the canvas, so skip no-op resizes or
+        // the hero goes blank mid-scroll.
+        if(nW === width && nH === height && nDpr === dpr) return false;
+        width = nW; height = nH; dpr = nDpr;
         canvas.width = Math.floor(width * dpr);
         canvas.height = Math.floor(height * dpr);
         canvas.style.width = width + 'px';
         canvas.style.height = height + 'px';
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        return true;
       }
 
       // Soft radial glow sprites drawn once, then stamped with drawImage.
@@ -624,10 +632,13 @@
         const mt = time*0.045;
 
         // Sphere sits right of center so the headline copy stays clear.
-        const R = Math.min(width, height)*0.55;
+        // On tall/stacked mobile heroes, center it up near the headline
+        // instead — at 62%/52% it hides behind the form card.
+        const portrait = height > width*1.2;
+        const R = portrait ? width*0.55 : Math.min(width, height)*0.55;
         const CAM = R*2.2;
-        const cx = width*0.62;
-        const cy = height*0.52;
+        const cx = portrait ? width*0.5 : width*0.62;
+        const cy = portrait ? Math.min(height*0.3, width*1.15) : height*0.52;
 
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 1;
@@ -779,7 +790,11 @@
       }
 
       resize();
-      window.addEventListener('resize', resize, {passive:true});
+      window.addEventListener('resize', ()=>{
+        // Repaint after a real resize; with reduced motion there is no
+        // animation loop to do it for us.
+        if(resize() && reduceMotion) frame();
+      }, {passive:true});
       if(reduceMotion){ tick = 600; frame(); } // one static, nicely-morphed frame
       else requestAnimationFrame(frame);
     })();
@@ -797,15 +812,17 @@
           child.style.transitionDelay = (i*90)+'ms';
         });
       });
-      if(reduce){
-        document.querySelectorAll('.reveal').forEach(el=>el.classList.add('in'));
-      }else{
+      // Reveals fire on scroll in both modes; reduced motion just swaps the
+      // slide for a plain fade (see CSS). Fallback shows everything.
+      if('IntersectionObserver' in window){
         const io = new IntersectionObserver(entries=>{
           entries.forEach(e=>{
             if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }
           });
         },{threshold:.15});
         document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+      }else{
+        document.querySelectorAll('.reveal').forEach(el=>el.classList.add('in'));
       }
 
       // ── Scroll-scrubbed splash scenes ──────────────────────────────
