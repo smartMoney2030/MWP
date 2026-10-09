@@ -74,8 +74,9 @@
     .button.gold{background:var(--gold);color:#1f2e33;box-shadow:0 14px 25px rgba(244,180,95,.3)}
     .hero{position:relative;overflow:hidden;background:#041b27;padding:76px 0 54px;isolation:isolate}
     .hero .wrap{max-width:1320px}
-    .hero:before{content:"";position:absolute;inset:0;background:radial-gradient(circle at 75% 16%,rgba(98,208,220,.14),transparent 35%),linear-gradient(180deg,rgba(7,54,74,.14),rgba(4,27,39,.42));z-index:-1}
-    .wave-canvas{position:absolute;inset:0;width:100%;height:100%;z-index:-2;background:#02080d}
+    .hero:before{content:"";position:absolute;inset:0;background:radial-gradient(circle at 70% 18%,rgba(98,208,220,.18),transparent 36%),linear-gradient(90deg,rgba(3,13,21,.62),rgba(3,13,21,.26) 45%,rgba(3,13,21,.42)),linear-gradient(180deg,rgba(7,54,74,.18),rgba(3,13,21,.72));z-index:-1}
+    .wave-bg{position:absolute;inset:0;width:100%;height:100%;z-index:-2;background:#041b27;overflow:hidden}
+    .wave-bg canvas{display:block;width:100%!important;height:100%!important}
     .hero-grid{position:relative;display:grid;grid-template-columns:1.02fr .98fr;gap:56px;align-items:center}
     .hero h1{color:white;text-shadow:0 18px 55px rgba(0,0,0,.28)}
     .hero .lead{color:#c8e3ea}
@@ -211,7 +212,7 @@
 
   <main id="top">
     <section class="hero">
-      <canvas class="wave-canvas" id="waterWaveCanvas" aria-hidden="true"></canvas>
+      <div class="wave-bg" id="particleWaveBg" aria-hidden="true"></div>
       <div class="wrap hero-grid">
         <div>
           <div class="eyebrow">Clean local water treatment</div>
@@ -429,6 +430,7 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script>
     function toast(message){
       const el=document.getElementById('toast');
@@ -437,6 +439,121 @@
       window.clearTimeout(window.__toastTimer);
       window.__toastTimer=window.setTimeout(()=>el.classList.remove('show'),2800);
     }
+
+    // Three.js 3D Digital Particle Wave — adapted from the supplied reference,
+    // scoped only to the first dark-blue hero section background.
+    (function initHeroParticleWave(){
+      const mount = document.getElementById('particleWaveBg');
+      if(!mount) return;
+      if(!window.THREE){ console.warn('Three.js did not load; hero particle wave skipped.'); return; }
+
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setClearColor(0x041b27, 1);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      mount.appendChild(renderer.domElement);
+
+      camera.position.set(0, 10, 95);
+      camera.lookAt(0, 2, 0);
+
+      const gridWidth = 240;
+      const gridDepth = 150;
+      const spacing = 1.1;
+      const numParticles = gridWidth * gridDepth;
+      const positions = new Float32Array(numParticles * 3);
+      const colors = new Float32Array(numParticles * 3);
+      const tempColor = new THREE.Color();
+
+      let index = 0;
+      for(let x = 0; x < gridWidth; x++){
+        for(let z = 0; z < gridDepth; z++){
+          const posX = (x - gridWidth / 2) * spacing;
+          const posZ = (z - gridDepth / 2) * spacing;
+          positions[index * 3] = posX;
+          positions[index * 3 + 1] = 0;
+          positions[index * 3 + 2] = posZ;
+
+          const ratioX = x / gridWidth;
+          const ratioZ = z / gridDepth;
+          const hue = (220 - ratioX * 25 - ratioZ * 5) / 360;
+          const lightness = 0.42 + (1 - ratioZ) * 0.18;
+          tempColor.setHSL(hue, 1.0, lightness);
+          colors[index * 3] = tempColor.r;
+          colors[index * 3 + 1] = tempColor.g;
+          colors[index * 3 + 2] = tempColor.b;
+          index++;
+        }
+      }
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+      const material = new THREE.PointsMaterial({
+        size: 0.38,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.9,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+
+      const particleSystem = new THREE.Points(geometry, material);
+      scene.add(particleSystem);
+
+      const clock = new THREE.Clock();
+      const loopDuration = 10;
+
+      function resize(){
+        const rect = mount.getBoundingClientRect();
+        const w = Math.max(1, rect.width);
+        const h = Math.max(1, rect.height);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h, false);
+      }
+
+      function renderFrame(){
+        const elapsedTime = reduceMotion ? 0 : clock.getElapsedTime();
+        const progress = (elapsedTime % loopDuration) / loopDuration;
+        const theta = progress * Math.PI * 2;
+        const positionAttribute = geometry.attributes.position;
+
+        let index = 0;
+        for(let x = 0; x < gridWidth; x++){
+          for(let z = 0; z < gridDepth; z++){
+            const posX = (x - gridWidth / 2) * spacing;
+            const posZ = (z - gridDepth / 2) * spacing;
+            const wave1 = Math.sin(posX * 0.12 + theta) * Math.cos(posZ * 0.11 + theta) * 2.5;
+            const wave2 = Math.sin(posX * 0.23 - theta * 2) * 1.1;
+            const wave3 = Math.cos(posZ * 0.19 + theta * 3) * 1.0;
+            const wave4 = Math.sin((posX + posZ) * 0.17 + theta * 2) * 0.9;
+            const wave5 = Math.cos((posX - posZ) * 0.31 - theta * 4) * 0.6;
+            const wave6 = Math.sin(posX * 0.41 + posZ * 0.37 + theta * 5) * 0.4;
+            positionAttribute.setY(index, wave1 + wave2 + wave3 + wave4 + wave5 + wave6);
+            index++;
+          }
+        }
+
+        positionAttribute.needsUpdate = true;
+        particleSystem.rotation.y = Math.sin(theta) * 0.04;
+        renderer.render(scene, camera);
+      }
+
+      function animate(){
+        renderFrame();
+        if(!reduceMotion) requestAnimationFrame(animate);
+      }
+
+      resize();
+      window.addEventListener('resize', resize, {passive:true});
+      animate();
+    })();
+
+    // Previous canvas morph effect is intentionally left below as a fallback;
+    // because the hero now uses #particleWaveBg instead of #waterWaveCanvas, it returns immediately.
 
     // Morphing particle splash (ported from OceanSplash / morphParticles):
     // a 3-D particle sphere that morphs blob → crown → blast → torus → helix → vortex,

@@ -1,10 +1,10 @@
 # My Water People Website
 
 ## Design direction
-Dark, immersive, cinematic single-page site for a local water-treatment company. Liquid is the theme: the hero keeps the morphing particle-sphere animation, and a site-wide splash engine erupts high-speed water splashes (crown bursts, stringy filaments, fine mist — modeled on real splash footage) as sections scroll into view, with extra spray kicked up by fast scrolling.
+Dark, immersive, cinematic single-page site for a local water-treatment company. Liquid is the theme: the hero keeps the deep blue background but now uses a scoped Three.js 3D blue particle-wave effect in the first section only, followed by scroll-scrubbed splash scenes as sections come into view.
 
 ## Key features
-- **Hero (unchanged)**: canvas particle sphere morphing blob → crown → blast → torus → helix → vortex over an ambient particle ocean.
+- **Hero**: first-section-only Three.js 3D digital particle wave over the existing deep blue background; the rest of the page structure stays unchanged.
 - **Splash engine**: fixed full-page canvas behind content; section-entry bursts (IntersectionObserver, alternating left/right emitters) + scroll-velocity spray; respects `prefers-reduced-motion`; capped particle counts and DPR for performance.
 - **Cinematic scroll**: word-by-word heading reveals, staggered card rises, pinned "How it works" scene with a scroll-scrubbed waterline and step activation.
 - **Free water test inquiries**: form opens the visitor's email app addressed to `mywaterpeople@gmail.com` (mailto); all call CTAs are real `tel:+12108163027` links.
